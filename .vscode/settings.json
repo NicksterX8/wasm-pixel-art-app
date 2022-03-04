@@ -1,0 +1,34 @@
+{
+    "files.associations": {
+        "stdlib.h": "c",
+        "complex": "c",
+        "ios": "c",
+        "sdl.h": "c",
+        "__node_handle": "c",
+        "stdbool.h": "c",
+        "vector": "c",
+        "iosfwd": "c",
+        "iterator": "c",
+        "close_code.h": "c"
+    },
+    "actionButtons": {
+        "defaultColor": "#ff0034", // Can also use string color names.
+        "loadNpmCommands": false, // Disables automatic generation of actions for npm commands.
+        "reloadButton": null, // Custom reload button text or icon (default ↻). null value enables automatic reload on configuration change
+        "commands": [
+            {
+                "cwd": "${workspaceFolder}",
+                "name": "Make Deploy",
+                "color": "green",
+                "singleInstance": true,
+                "command": "make deploy",
+            },
+            {
+                "name": "Make Web",
+                "color": "yellow",
+                "singleInstance": true,
+                "command": "make web",
+            }
+        ]
+    }
+}
