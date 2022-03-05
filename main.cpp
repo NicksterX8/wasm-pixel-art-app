@@ -6,7 +6,7 @@
 #include <SDL2/SDL_image.h>
 
 #include "SDL2_gfx/SDL2_gfxPrimitives.h"
-#include "SDL_FontCache/SDL_FontCache.h"
+#include "SDL_FontCache_Fork/SDL_FontCache.h"
 
 #include "NC/cpp-vectors.hpp"
 #include "NC/SDLContext.h"
@@ -14,10 +14,11 @@
 #include "NC/SDLBuild.h"
 #include "NC/colors.h"
 
-#define WINDOW_HIGH_DP
+#define WINDOW_HIGH_DPI
 
 FC_Font *FreeSans;
 FC_Font *TitleFont;
+FC_Font* InfoFont;
 SDL_Texture* tex;
 
 #define SDL_PIXELFORMAT SDL_PIXELFORMAT_RGBA8888 
@@ -163,9 +164,7 @@ void renderEntireCanvas(SDL_Renderer* ren, Canvas* canvas) {
     for (int x = 0; x < canvas->width; x++) {
         for (int y = 0; y < canvas->height; y++) {
             Pixel pixel = canvas->pixels[x + y*canvas->width];
-            if (pixel.a == 0) {
-                continue;
-            }
+
             SDL_SetRenderDrawColor(ren, pixel.r, pixel.g, pixel.b, pixel.a);
             SDL_RenderDrawPoint(ren, x, y);
         }
@@ -214,9 +213,11 @@ void render(SDL_Renderer* ren, float scale, const Canvas* canvas, Pen *pen, GUI 
 
     FC_Draw(FreeSans, ren, 5*scale, 5*scale, "FPS: %.2f", metadata->fps);
 
-    FC_DrawAlign(TitleFont, ren, renWidth/2, 17*scale, FC_ALIGN_CENTER, "Pixel Art Maker");
+    FC_DrawAlign(TitleFont, ren, renWidth/2, 17*scale, FC_HALIGN_CENTER, "Pixel Art Maker");
 
-    // FC_DrawAlignV(FreeSans, ren, 5, )
+    FC_DrawAny(InfoFont, ren, 5, renHeight - 5, FC_HALIGN_LEFT, FC_VALIGN_BOTTOM, FC_MakeScale(1, 1), FC_MakeColor(0,0,0,255),
+    "Left mouse to draw, right mouse to erase.\n"
+    "Scroll with mouse to zoom in/out, arrow keys to move around when zoomed.");
 
     SDL_RenderPresent(ren);
 }
@@ -257,14 +258,18 @@ void resizeCanvas(Canvas* canvas, int windowWidth, int windowHeight, float rende
     /* Design input values */
     int minCanvasMarginLeft = 10;
     int minCanvasMarginRight = 10;
-    int minCanvasMarginBottom = 10;
-    int minCanvasMarginTop = 80;
+    int minCanvasMarginBottom = 20;
+    int minCanvasMarginTop = 75;
 
     /* Calculated values */
     int availableWidth = windowWidth - (minCanvasMarginLeft + minCanvasMarginRight) * renderScale;
     int availableHeight = windowHeight - (minCanvasMarginTop + minCanvasMarginBottom) * renderScale;
 
     int pixelSize = std::min(availableWidth / canvas->width, availableHeight / canvas->height);
+    if (pixelSize < 1) {
+        // force canvas to atleast exist
+        pixelSize = 1;
+    }
 
     int usedWidth = (pixelSize * canvas->width);
     int usedHeight = (pixelSize * canvas->height);
@@ -277,6 +282,72 @@ void resizeCanvas(Canvas* canvas, int windowWidth, int windowHeight, float rende
 
     canvas->pixelSize = pixelSize;
     canvas->scale = pixelSize * renderScale;
+}
+
+/*
+* Reload the canvas with a new texture, pixel buffer, etc.
+* Does NOT change things like the pixel scale, window offset, etc. So it's most likely necessary to call resizeCanvas after calling this.
+*/
+void reloadCanvas(Canvas* canvas, int width, int height, SDL_Renderer* renderer) {
+    canvas->width = width;
+    canvas->height = height;
+    if (canvas->pixels) {
+        free(canvas->pixels);
+    }
+    canvas->pixels = createPixelBuffer(width, height);
+    if (canvas->texture) {
+        SDL_DestroyTexture(canvas->texture);
+    }
+    canvas->texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT, SDL_TEXTUREACCESS_TARGET, width, height);
+    SDL_SetTextureBlendMode(canvas->texture, SDL_BLENDMODE_BLEND);
+}
+
+int writePixelBufferToFile(Pixel *buffer, int width, int height, const char* file) {
+    if (!buffer) return -1;
+    if (!file) return -1;
+
+    SDL_Surface* bufferSurface = SDL_CreateRGBSurfaceWithFormatFrom(buffer, width, height, 64, width * 4, SDL_PIXELFORMAT_RGBA8888);
+    if (!bufferSurface) {
+        SDL_Log("Error: Failed to create surface to save to file.");
+        return -1;
+    }
+    ((Uint32*)bufferSurface->pixels)[0] = 0xFF0000FF;
+    IMG_SavePNG(bufferSurface, "ayooooo.png");
+    if (IMG_SavePNG(bufferSurface, file)) {
+        SDL_Log("Error saving pixel buffer to file, IMG_Error: %s", IMG_GetError());
+        SDL_FreeSurface(bufferSurface);
+        return -1;
+    }
+
+    SDL_FreeSurface(bufferSurface);
+
+    return 0;
+}
+
+#define SAVE_FILE "art.png"
+
+int saveCanvas(Canvas* canvas) {
+    return writePixelBufferToFile(canvas->pixels, canvas->width, canvas->height, SAVE_FILE);
+}
+
+int loadCanvasFromSave(Canvas* canvas, SDL_Renderer* renderer) {
+    SDL_Surface* surface = IMG_Load(SAVE_FILE);
+    if (!surface) {
+        SDL_Log("Error: Failed to load saved canvas from file.");
+        SDL_FreeSurface(surface);
+        return -1;
+    }
+
+
+
+    reloadCanvas(canvas, surface->w, surface->h, renderer);
+    int surfaceSize = surface->w * surface->h;
+
+    memcpy(canvas->pixels, surface->pixels, surfaceSize * sizeof(Pixel));
+    
+
+    SDL_FreeSurface(surface);
+    return 0;
 }
 
 bool windowFocused = false;
@@ -337,6 +408,20 @@ int update(Context ctx) {
                     case SDLK_UP:
                         translateCanvas(canvas, 0, -5);
                         break;
+                    /*
+                    // currently ultra broken, makes zero sense whatsoever, so just gonna give up
+                    case SDLK_m:
+                        // save canvas
+                        saveCanvas(canvas);
+                        renderEntireCanvas(ctx.sdlCtx->ren, canvas);
+                        *?
+                        break;
+                    case SDLK_n:
+                        // load canvas
+                        loadCanvasFromSave(canvas, ctx.sdlCtx->ren);
+                        renderEntireCanvas(ctx.sdlCtx->ren, canvas);
+                        break;
+                    */
                 }
                 break;
             case SDL_MOUSEWHEEL:
@@ -350,10 +435,16 @@ int update(Context ctx) {
         }
     }
 
+    // web browsers automatically unload unfocused tabs and
+    // how emscripten treats window focus is if the canvas is selected,
+    // and when you try to click back on to the canvas it won't trigger an onWindowFocus event,
+    // so it wont be registered, so we just don't sleep like we normally would.
+#ifndef __EMSCRIPTEN__
     if (!windowFocused) {
         SDL_Delay(10);
         return (int)quit;
     }
+#endif
 
     Pen* pen = ctx.pen;
     if ((mouseButtons & SDL_BUTTON_LMASK) == SDL_BUTTON_LMASK || (mouseButtons & SDL_BUTTON_RMASK) == SDL_BUTTON_RMASK) {
@@ -437,10 +528,15 @@ int updateWrapper(void *param) {
 // load assets and stuff
 int load(SDL_Renderer *ren, float renderScale = 1.0f) {
     tex = IMG_LoadTexture(ren, "assets/pixelart/WatermelonSlice.png");
-    FC_NewFont(FreeSans, ren, "assets/fonts/FreeSans.ttf", 24*renderScale);
+    FreeSans = FC_CreateFont();
+    FC_LoadFont(FreeSans, ren, "assets/fonts/FreeSans.ttf", 24*renderScale, FC_MakeColor(0, 0, 0, 255), TTF_STYLE_NORMAL);
 
-    FC_NewFont(TitleFont, ren, "assets/fonts/Ubuntu-Regular.ttf", 36*renderScale);
+    TitleFont = FC_CreateFont();
+    FC_LoadFont(TitleFont, ren, "assets/fonts/Ubuntu-Regular.ttf", 36*renderScale, FC_MakeColor(0, 0, 0, 255), TTF_STYLE_NORMAL);
     
+    InfoFont = FC_CreateFont();
+    FC_LoadFont(InfoFont, ren, "assets/fonts/FreeSans.ttf", 12*renderScale, FC_MakeColor(0, 0, 0, 255), TTF_STYLE_NORMAL);
+
     return 0;
 }
 
@@ -454,7 +550,7 @@ void unload() {
 int main() {
     SDLSettings settings = DefaultSDLSettings;
     settings.windowTitle = "Hello There!";
-    settings.windowIconPath = "assets/pixelart/gold-bullet.png";
+    settings.windowIconPath = "assets/windowIcon.png";
     settings.allowHighDPI = true;
     settings.vsync = true;
     SDLContext sdlCtx = initSDLAndContext(&settings); // SDL Context

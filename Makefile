@@ -9,8 +9,8 @@ ARGS =
 MAINFILE = main.cpp
 APP = main
 SRC_FILES = $(MAINFILE)
-OBJ_FILES = NC/NC.a main.o SDL2_gfx/SDL2_gfx.a SDL_FontCache/SDL_FontCache.o
-EMSC_OBJ_FILES = NC/NC.emsc.a SDL2_gfx/SDL2_gfx.emsc.a SDL_FontCache/SDL_FontCache.emsc.o
+OBJ_FILES = NC/NC.a main.o SDL2_gfx/SDL2_gfx.a SDL_FontCache_Fork/SDL_FontCache.o
+EMSC_OBJ_FILES = NC/NC.emsc.a SDL2_gfx/SDL2_gfx.emsc.a SDL_FontCache_Fork/SDL_FontCache.emsc.o
 
 .c.o: $(SRC_FILES)
 	$(CC) $(CFLAGS) $(INCLUDES) -c $^
